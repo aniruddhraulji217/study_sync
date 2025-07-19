@@ -1,6 +1,7 @@
 # study_sync
 
 A new Flutter project.
+Initialised the Firebase
 
 ## Getting Started
 
