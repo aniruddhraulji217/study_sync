@@ -25,25 +25,6 @@ class _HomePageState extends State<HomePage> {
     "Progress",
   ];
 
-  Future<void> _createTask(String uid, String title, String? durationMins) async {
-    final tasksRef = FirebaseFirestore.instance.collection('users').doc(uid).collection('tasks');
-    await tasksRef.add({
-      'title': title,
-      'meta': durationMins != null && durationMins.isNotEmpty ? '$durationMins mins' : '',
-      'completed': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> _toggleComplete(String uid, String taskId, bool currentlyCompleted) async {
-    final taskRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .collection('tasks')
-        .doc(taskId);
-    await taskRef.update({'completed': !currentlyCompleted, 'updatedAt': FieldValue.serverTimestamp()});
-  }
-
   _logout(BuildContext context) async {
     await FirebaseAuth.instance.signOut();
     if (context.mounted) Navigator.of(context).pushReplacementNamed('/login');
