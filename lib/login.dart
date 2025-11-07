@@ -96,33 +96,103 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
     }
   }
 
-  Future<void> _signInWithGoogle() async {
-    try {
-      // Force account selection every time
-      await _googleSignIn.disconnect();
+Future<void> _signInWithGoogle() async {
+  setState(() {
+    _errorMessage = null;
+  });
 
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) return; // user canceled
+  try {
+    // ✅ Check if already signed in silently
+    GoogleSignInAccount? googleUser = await _googleSignIn.signInSilently();
 
-      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+    // If not signed in silently, open manual sign-in
+    googleUser ??= await _googleSignIn.signIn();
 
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+    // If user cancels the sign-in dialog, stop
+    if (googleUser == null) return;
 
-      await FirebaseAuth.instance.signInWithCredential(credential);
+    // ✅ Get authentication tokens
+    final GoogleSignInAuthentication googleAuth =
+        await googleUser.authentication;
 
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, '/home');
-      }
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Google sign-in failed. Please try again.';
-      });
-      print("Google sign-in error: $e");
-    }
+    // ✅ Create a Firebase credential
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
+
+    // ✅ Sign in to Firebase
+    await FirebaseAuth.instance.signInWithCredential(credential);
+
+    if (!mounted) return;
+
+    // ✅ Navigate after successful login
+    Navigator.pushReplacementNamed(context, '/home');
+  } on FirebaseAuthException catch (e) {
+    setState(() {
+      _errorMessage = e.message ?? 'Google sign-in failed. Please try again.';
+    });
+  } catch (e) {
+    debugPrint('Google sign-in error: $e');
+    setState(() {
+      _errorMessage = 'Google sign-in failed. Please try again.';
+    });
   }
+}
+
+Future<void> _showForgotPasswordDialog() async {
+  final _forgotEmailController = TextEditingController();
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Reset Password'),
+      content: TextField(
+        controller: _forgotEmailController,
+        keyboardType: TextInputType.emailAddress,
+        decoration: const InputDecoration(
+          labelText: 'Enter your email',
+          prefixIcon: Icon(Icons.email_outlined),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final email = _forgotEmailController.text.trim();
+            if (email.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please enter your email')),
+              );
+              return;
+            }
+            try {
+              await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Password reset email sent!')),
+                );
+              }
+              Navigator.of(dialogContext).pop(true);
+            } on FirebaseAuthException catch (e) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(e.message ?? 'Error sending email')),
+              );
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF56ab2f),
+          ),
+          child: const Text('Send'),
+        ),
+      ],
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
@@ -281,6 +351,20 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
                                 }
                                 return null;
                               },
+                            ),
+
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton(
+                                onPressed: _showForgotPasswordDialog,
+                                child: const Text(
+                                  'Forgot Password?',
+                                  style: TextStyle(
+                                    color: Color(0xFF56ab2f),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 24),
 

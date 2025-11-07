@@ -136,121 +136,136 @@ class _HomePageState extends State<HomePage> {
   }
 
   // ---- Drawer ----
-  Widget _buildAppDrawer(User? user) {
-    final displayName = (user?.displayName != null && user!.displayName!.trim().isNotEmpty)
-        ? user.displayName!
-        : (user?.email != null ? user!.email!.split('@')[0] : 'there');
-
-    final statsRef = user == null
-        ? null
-        : FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('meta')
-            .doc('stats');
-
-    final tasksStream = user == null
-        ? const Stream<QuerySnapshot<Map<String, dynamic>>>.empty()
-        : FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('tasks')
-            .snapshots();
-
-    return Drawer(
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            UserAccountsDrawerHeader(
-              accountName: Text("Let's study, $displayName"),
-              accountEmail: Text(user?.email ?? ''),
-              currentAccountPicture: CircleAvatar(
-                child: Text(
-                  displayName.isNotEmpty ? displayName[0].toUpperCase() : 'S',
-                ),
-              ),
-            ),
-            if (statsRef != null)
-              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream: statsRef.snapshots(),
-                builder: (context, snap) {
-                  final data = snap.data?.data();
-                  final streak = data != null ? (data['streak'] ?? 0) as int : 0;
-                  final lastDay = data != null ? (data['lastCompletedDay'] ?? '—') : '—';
-                  return ListTile(
-                    leading: const Icon(Icons.local_fire_department),
-                    title: const Text('Study Streak'),
-                    subtitle: Text('🔥 $streak days • last: $lastDay'),
-                  );
-                },
-              )
-            else
-              const ListTile(
-                leading: Icon(Icons.local_fire_department),
-                title: Text('Study Streak'),
-                subtitle: Text('Not signed in'),
-              ),
-            const ListTile(
-              leading: Icon(Icons.flag),
-              title: Text("Today's Goal"),
-              subtitle: Text('Complete 3 tasks • 45 mins'),
-            ),
-            const Divider(),
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: tasksStream,
-              builder: (context, snap) {
-                final count = snap.data?.docs.length ?? 0;
-                return ListTile(
-                  leading: const Icon(Icons.list),
-                  title: const Text('Tasks'),
-                  subtitle: Text('$count total'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    setState(() {
-                      _activeTab = 0; // Go to Personal tab
-                    });
-                  },
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.timeline),
-              title: const Text('Progress'),
-              onTap: () {
-                Navigator.of(context).pop();
-                setState(() {
-                  _activeTab = 3; // Go to Progress tab
-                });
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.calendar_month),
-              title: const Text('Calendar'),
-              onTap: () {
-                Navigator.of(context).pop();
-                setState(() {
-                  _activeTab = 4; // Go to Calendar tab
-                });
-              },
-            ),
-            const Spacer(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
-                icon: const Icon(Icons.logout),
-                label: const Text('Logout'),
-                onPressed: () {
-                  Navigator.of(context).pop(); // close drawer
-                  _confirmLogout(context);
-                },
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-        ),
-      ),
+ Widget _buildAppDrawer(User? user) {
+  if (user == null) {
+    // User not logged in
+    return const Drawer(
+      child: Center(child: Text("No user logged in.")),
     );
   }
+
+  final displayName = user.displayName?.trim().isNotEmpty == true
+      ? user.displayName!
+      : (user.email?.split('@')[0] ?? 'User');
+
+  final photoUrl = user.photoURL;
+
+  // Reference to Firestore meta collection (for streak, tasks, etc.)
+  final statsRef = FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .collection('meta')
+      .doc('stats');
+
+  final tasksStream = FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .collection('tasks')
+      .snapshots();
+
+  return Drawer(
+    child: SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          UserAccountsDrawerHeader(
+            accountName: Text("Let's study, $displayName"),
+            accountEmail: Text(user.email ?? ''),
+            currentAccountPicture: CircleAvatar(
+              backgroundImage: photoUrl != null
+                  ? NetworkImage(photoUrl) // Google DP
+                  : null,
+              child: photoUrl == null
+                  ? Text(
+                      displayName.isNotEmpty
+                          ? displayName[0].toUpperCase()
+                          : 'S',
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                    )
+                  : null,
+            ),
+          ),
+
+          // Study streak
+          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: statsRef.snapshots(),
+            builder: (context, snapshot) {
+              final data = snapshot.data?.data();
+
+              // Fallback if stats missing
+              final streak = data != null ? (data['streak'] ?? 0) as int : 0;
+              final lastDay = data != null ? (data['lastCompletedDay'] ?? '—') : '—';
+
+              return ListTile(
+                leading: const Icon(Icons.local_fire_department),
+                title: const Text('Study Streak'),
+                subtitle: Text('🔥 $streak days • last: $lastDay'),
+              );
+            },
+          ),
+
+          const Divider(),
+
+          // Tasks
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: tasksStream,
+            builder: (context, snap) {
+              final count = snap.data?.docs.length ?? 0;
+              return ListTile(
+                leading: const Icon(Icons.list),
+                title: const Text('Tasks'),
+                subtitle: Text('$count total'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  setState(() {
+                    _activeTab = 0; // Go to Personal tab
+                  });
+                },
+              );
+            },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.timeline),
+            title: const Text('Progress'),
+            onTap: () {
+              Navigator.of(context).pop();
+              setState(() {
+                _activeTab = 3; // Go to Progress tab
+              });
+            },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.calendar_month),
+            title: const Text('Calendar'),
+            onTap: () {
+              Navigator.of(context).pop();
+              setState(() {
+                _activeTab = 4; // Go to Calendar tab
+              });
+            },
+          ),
+
+          const Spacer(),
+
+          // Logout Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+              icon: const Icon(Icons.logout),
+              label: const Text('Logout'),
+              onPressed: () {
+                Navigator.of(context).pop(); // close drawer
+                _confirmLogout(context);
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    ),
+  );
+ }
 }
