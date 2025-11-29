@@ -8,7 +8,7 @@ The app is built using Flutter, Firebase, and Material 3, providing a seamless, 
 
 ---
 
-🚀 Features
+🚀 Features.
 
 🔹 1. Group Study
 
