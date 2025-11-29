@@ -1,0 +1,39 @@
+[1mdiff --git a/android/.kotlin/sessions/kotlin-compiler-7434939763463568708.salive b/android/.kotlin/sessions/kotlin-compiler-7434939763463568708.salive[m
+[1mdeleted file mode 100644[m
+[1mindex e69de29..0000000[m
+[1mdiff --git a/android/app/google-services.json b/android/app/google-services.json[m
+[1mdeleted file mode 100644[m
+[1mindex d23a9f5..0000000[m
+[1m--- a/android/app/google-services.json[m
+[1m+++ /dev/null[m
+[36m@@ -1,29 +0,0 @@[m
+[31m-{[m
+[31m-  "project_info": {[m
+[31m-    "project_number": "371621892269",[m
+[31m-    "project_id": "study-planner-sync",[m
+[31m-    "storage_bucket": "study-planner-sync.firebasestorage.app"[m
+[31m-  },[m
+[31m-  "client": [[m
+[31m-    {[m
+[31m-      "client_info": {[m
+[31m-        "mobilesdk_app_id": "1:371621892269:android:57f4bd87c514c2aa3df624",[m
+[31m-        "android_client_info": {[m
+[31m-          "package_name": "com.example.study_sync"[m
+[31m-        }[m
+[31m-      },[m
+[31m-      "oauth_client": [],[m
+[31m-      "api_key": [[m
+[31m-        {[m
+[31m-          "current_key": "AIzaSyDZK98ASrxXwAMf4RuMMDg9Hb2vk9xJ9ls"[m
+[31m-        }[m
+[31m-      ],[m
+[31m-      "services": {[m
+[31m-        "appinvite_service": {[m
+[31m-          "other_platform_oauth_client": [][m
+[31m-        }[m
+[31m-      }[m
+[31m-    }[m
+[31m-  ],[m
+[31m-  "configuration_version": "1"[m
+[31m-}[m
+\ No newline at end of file[m

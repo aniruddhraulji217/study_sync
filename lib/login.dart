@@ -19,11 +19,15 @@ class _LoginPageState extends State<LoginPage> with SingleTickerProviderStateMix
   bool _obscurePassword = true;
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    scopes: [
-      'email',
-      'https://www.googleapis.com/auth/userinfo.profile',
-    ],
-  );
+  clientId: "371621892269-08qgap6io688o5qqtg8hhpdc4fnv09hh.apps.googleusercontent.com", 
+  scopes: [
+    'email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/tasks',
+  ],
+);
+
 
   late final AnimationController _animationController;
   late final Animation<double> _fadeAnimation;

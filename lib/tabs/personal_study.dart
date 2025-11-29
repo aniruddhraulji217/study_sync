@@ -1,24 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
 
-// ============================================================================
-// MAIN SCREEN
-// ============================================================================
+/// Full, advanced PersonalStudyPage with parent goals + child tasks (single file)
+/// - Keep this file in place of your existing personal_study.dart
+/// - Constructor requires uid (keeps compatibility with your homepage.dart)
 
-/// Screen for managing personal study goals with filtering, sorting, and CRUD operations
 class PersonalStudyPage extends StatefulWidget {
   final String uid;
+  final VoidCallback? onCalendarTap;
 
-  const PersonalStudyPage({super.key, required this.uid});
+  const PersonalStudyPage({super.key, required this.uid, this.onCalendarTap});
 
   @override
   State<PersonalStudyPage> createState() => _PersonalStudyPageState();
 }
 
 class _PersonalStudyPageState extends State<PersonalStudyPage> {
-  // Filter and sort state
   GoalFilterState _filterState = const GoalFilterState();
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
 
   @override
   Widget build(BuildContext context) {
@@ -27,35 +29,182 @@ class _PersonalStudyPageState extends State<PersonalStudyPage> {
     }
 
     return Scaffold(
+      // AppBar now minimal like Google Tasks
+      appBar: AppBar(
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  hintText: 'Search tasks...',
+                  border: InputBorder.none,
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    _filterState = _filterState.copyWith(
+                      searchQuery: value.toLowerCase(),
+                    );
+                  });
+                },
+              )
+            : const Text('Study Tasks'),
+        elevation: 0,
+        actions: [
+          if (!_isSearching)
+            IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: () {
+                setState(() {
+                  _isSearching = true;
+                });
+              },
+            ),
+          if (_isSearching)
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: () {
+                setState(() {
+                  _isSearching = false;
+                  _searchController.clear();
+                  _filterState = _filterState.copyWith(searchQuery: "");
+                });
+              },
+            ),
+          PopupMenuButton<String>(
+            onSelected: (v) {
+              if (v == 'completed') {
+                setState(
+                  () =>
+                      _filterState = _filterState.copyWith(showCompleted: true),
+                );
+              } else if (v == 'active') {
+                setState(
+                  () => _filterState = _filterState.copyWith(
+                    showCompleted: false,
+                  ),
+                );
+              } else if (v == 'priority') {
+                _showPriorityMenu(context);
+              } else if (v == 'sort') {
+                _showSortMenu(context);
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'active', child: Text('Active')),
+              PopupMenuItem(value: 'completed', child: Text('Completed')),
+              PopupMenuItem(value: 'priority', child: Text('Priority')),
+              PopupMenuItem(value: 'sort', child: Text('Sort')),
+            ],
+          ),
+        ],
+      ),
+
       body: Column(
         children: [
-          _StudyGoalsHeader(
-            onSearchChanged: (query) => setState(() {
-              _filterState = _filterState.copyWith(searchQuery: query);
-            }),
-          ),
+          // Top chips that behave like Google Tasks lists
           _FilterBar(
             filterState: _filterState,
-            onFilterChanged: (newState) => setState(() => _filterState = newState),
+            onFilterChanged: (newState) =>
+                setState(() => _filterState = newState),
           ),
           Expanded(
-            child: _GoalsListView(
-              uid: widget.uid,
-              filterState: _filterState,
-            ),
+            child: _GoalsListView(uid: widget.uid, filterState: _filterState),
           ),
         ],
       ),
       floatingActionButton: _AddGoalFAB(uid: widget.uid),
     );
   }
+
+  void _showPriorityMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildPriorityOption(context, 'All', Icons.all_inclusive, null),
+            _buildPriorityOption(context, 'High', Icons.flag, Colors.red),
+            _buildPriorityOption(context, 'Medium', Icons.flag, Colors.orange),
+            _buildPriorityOption(
+              context,
+              'Low',
+              Icons.flag_outlined,
+              Colors.blue,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPriorityOption(
+    BuildContext context,
+    String priority,
+    IconData icon,
+    Color? color,
+  ) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text('$priority Priority${priority == 'All' ? 'ies' : ''}'),
+      onTap: () {
+        setState(
+          () => _filterState = _filterState.copyWith(priority: priority),
+        );
+        Navigator.pop(context);
+      },
+    );
+  }
+
+  void _showSortMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildSortOption(
+              context,
+              'createdAt',
+              'Date Created',
+              Icons.date_range,
+            ),
+            _buildSortOption(context, 'priority', 'Priority', Icons.flag),
+            _buildSortOption(
+              context,
+              'targetDate',
+              'Due Date',
+              Icons.calendar_today,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortOption(
+    BuildContext context,
+    String sortBy,
+    String label,
+    IconData icon,
+  ) {
+    final isSelected = _filterState.sortBy == sortBy;
+    return ListTile(
+      leading: Icon(icon),
+      title: Text('Sort by $label'),
+      trailing: isSelected ? const Icon(Icons.check) : null,
+      onTap: () {
+        setState(() => _filterState = _filterState.copyWith(sortBy: sortBy));
+        Navigator.pop(context);
+      },
+    );
+  }
 }
 
 // ============================================================================
-// DATA MODELS
+// MODELS
 // ============================================================================
 
-/// Immutable filter state for goals
 @immutable
 class GoalFilterState {
   final String priority;
@@ -85,7 +234,6 @@ class GoalFilterState {
   }
 }
 
-/// Data model for a study goal
 class StudyGoal {
   final String id;
   final String title;
@@ -98,6 +246,9 @@ class StudyGoal {
   final int studySessions;
   final int totalStudyMinutes;
   final DateTime? createdAt;
+  final int taskCount;
+  final int completedTaskCount;
+  final double progress;
 
   StudyGoal({
     required this.id,
@@ -111,6 +262,9 @@ class StudyGoal {
     this.studySessions = 0,
     this.totalStudyMinutes = 0,
     this.createdAt,
+    this.taskCount = 0,
+    this.completedTaskCount = 0,
+    this.progress = 0.0,
   });
 
   factory StudyGoal.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -127,7 +281,31 @@ class StudyGoal {
       studySessions: data['studySessions'] ?? 0,
       totalStudyMinutes: data['totalStudyMinutes'] ?? 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      taskCount: data['taskCount'] ?? 0,
+      completedTaskCount: data['completedTaskCount'] ?? 0,
+      progress: (data['progress'] ?? 0.0).toDouble(),
     );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'description': description,
+      'priority': priority,
+      'estimatedMinutes': estimatedMinutes,
+      'targetDate': targetDate != null ? Timestamp.fromDate(targetDate!) : null,
+      'tags': tags,
+      'completed': completed,
+      'studySessions': studySessions,
+      'totalStudyMinutes': totalStudyMinutes,
+      'createdAt': createdAt != null
+          ? Timestamp.fromDate(createdAt!)
+          : FieldValue.serverTimestamp(),
+      'taskCount': taskCount,
+      'completedTaskCount': completedTaskCount,
+      'progress': progress,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
   }
 
   bool get isOverdue =>
@@ -151,84 +329,72 @@ class StudyGoal {
   }
 }
 
-// ============================================================================
-// HEADER SECTION
-// ============================================================================
+/// Child Task model
+class StudyTask {
+  final String id;
+  final String title;
+  final String description;
+  final DateTime? dueDate;
+  final bool completed;
+  final DateTime? createdAt;
+  final int order;
+  final List<String> tags; // <--- add this
+  final String priority;
 
-class _StudyGoalsHeader extends StatelessWidget {
-  final ValueChanged<String> onSearchChanged;
+  StudyTask({
+    required this.id,
+    required this.title,
+    this.description = '',
+    this.dueDate,
+    this.completed = false,
+    this.createdAt,
+    this.order = 0,
+    this.tags = const [],
+    this.priority = 'Medium',
+  });
 
-  const _StudyGoalsHeader({required this.onSearchChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary,
-            theme.colorScheme.primary.withOpacity(0.8),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'My Study Goals',
-            style: theme.textTheme.headlineMedium?.copyWith(
-              color: theme.colorScheme.onPrimary,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Organize and track your learning objectives',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onPrimary.withOpacity(0.9),
-            ),
-          ),
-          const SizedBox(height: 16),
-          SearchBar(
-            hintText: 'Search goals...',
-            leading: const Icon(Icons.search),
-            backgroundColor: MaterialStateProperty.all(Colors.white),
-            elevation: MaterialStateProperty.all(0),
-            onChanged: (value) => onSearchChanged(value.toLowerCase()),
-            padding: const MaterialStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 16),
-            ),
-          ),
-        ],
-      ),
+  factory StudyTask.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data() ?? {};
+    return StudyTask(
+      id: doc.id,
+      title: data['title'] ?? 'Untitled',
+      description: data['description'] ?? '',
+      dueDate: (data['dueDate'] as Timestamp?)?.toDate(),
+      completed: data['completed'] ?? false,
+      createdAt: (data['createdAt'] as Timestamp?)?.toDate(),
+      order: data['order'] ?? 0,
     );
   }
+
+  Map<String, dynamic> toMap() => {
+    'title': title,
+    'description': description,
+    'dueDate': dueDate != null ? Timestamp.fromDate(dueDate!) : null,
+    'completed': completed,
+    'createdAt': createdAt != null
+        ? Timestamp.fromDate(createdAt!)
+        : FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+    'order': order,
+  };
 }
 
 // ============================================================================
-// FILTER BAR
+// FILTER BAR (unchanged logic)
 // ============================================================================
 
 class _FilterBar extends StatelessWidget {
   final GoalFilterState filterState;
   final ValueChanged<GoalFilterState> onFilterChanged;
 
-  const _FilterBar({
-    required this.filterState,
-    required this.onFilterChanged,
-  });
+  const _FilterBar({required this.filterState, required this.onFilterChanged});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.3),
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.03),
         border: Border(
           bottom: BorderSide(color: Theme.of(context).dividerColor),
         ),
@@ -285,7 +451,12 @@ class _FilterBar extends StatelessWidget {
             _buildPriorityOption(context, 'All', Icons.all_inclusive, null),
             _buildPriorityOption(context, 'High', Icons.flag, Colors.red),
             _buildPriorityOption(context, 'Medium', Icons.flag, Colors.orange),
-            _buildPriorityOption(context, 'Low', Icons.flag_outlined, Colors.blue),
+            _buildPriorityOption(
+              context,
+              'Low',
+              Icons.flag_outlined,
+              Colors.blue,
+            ),
           ],
         ),
       ),
@@ -315,9 +486,19 @@ class _FilterBar extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _buildSortOption(context, 'createdAt', 'Date Created', Icons.date_range),
+            _buildSortOption(
+              context,
+              'createdAt',
+              'Date Created',
+              Icons.date_range,
+            ),
             _buildSortOption(context, 'priority', 'Priority', Icons.flag),
-            _buildSortOption(context, 'targetDate', 'Due Date', Icons.calendar_today),
+            _buildSortOption(
+              context,
+              'targetDate',
+              'Due Date',
+              Icons.calendar_today,
+            ),
           ],
         ),
       ),
@@ -344,17 +525,14 @@ class _FilterBar extends StatelessWidget {
 }
 
 // ============================================================================
-// GOALS LIST VIEW
+// GOALS LIST VIEW + PROCESSING (preserves your logic)
 // ============================================================================
 
 class _GoalsListView extends StatelessWidget {
   final String uid;
   final GoalFilterState filterState;
 
-  const _GoalsListView({
-    required this.uid,
-    required this.filterState,
-  });
+  const _GoalsListView({required this.uid, required this.filterState});
 
   @override
   Widget build(BuildContext context) {
@@ -383,36 +561,39 @@ class _GoalsListView extends StatelessWidget {
           );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
+        // Google Tasks style: a single-column list with subtle dividers
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(vertical: 8),
           itemCount: goals.length,
-          itemBuilder: (context, index) => _GoalCard(goal: goals[index], uid: uid),
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (context, index) =>
+              _GoalCard(goal: goals[index], uid: uid),
         );
       },
     );
   }
 
-  /// Apply filtering and sorting to goals
   List<StudyGoal> _processGoals(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
     var goals = docs.map((doc) => StudyGoal.fromFirestore(doc)).toList();
 
-    // Apply priority filter
     if (filterState.priority != 'All') {
       goals = goals.where((g) => g.priority == filterState.priority).toList();
     }
 
-    // Apply search filter
     if (filterState.searchQuery.isNotEmpty) {
       goals = goals.where((g) {
-        final titleMatch = g.title.toLowerCase().contains(filterState.searchQuery);
-        final descMatch = g.description.toLowerCase().contains(filterState.searchQuery);
+        final titleMatch = g.title.toLowerCase().contains(
+          filterState.searchQuery,
+        );
+        final descMatch = g.description.toLowerCase().contains(
+          filterState.searchQuery,
+        );
         return titleMatch || descMatch;
       }).toList();
     }
 
-    // Apply sorting
     goals.sort((a, b) => _compareGoals(a, b, filterState.sortBy));
 
     return goals;
@@ -432,15 +613,15 @@ class _GoalsListView extends StatelessWidget {
         if (b.targetDate == null) return -1;
         return a.targetDate!.compareTo(b.targetDate!);
 
-      default: // createdAt
+      default:
         if (a.createdAt == null || b.createdAt == null) return 0;
-        return b.createdAt!.compareTo(a.createdAt!); // Descending
+        return b.createdAt!.compareTo(a.createdAt!);
     }
   }
 }
 
 // ============================================================================
-// GOAL CARD
+// GOAL CARD (Google Tasks style)
 // ============================================================================
 
 class _GoalCard extends StatelessWidget {
@@ -451,126 +632,119 @@ class _GoalCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => _showGoalDetails(context),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildHeader(context),
-              const SizedBox(height: 12),
-              _buildMetadata(),
-              if (goal.tags.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                _buildTags(),
+    // Use ListTile style like Google Tasks: simple, compact, with checkbox and subtle subtitle
+    return InkWell(
+      onTap: () => _showGoalDetails(context),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Leading checkbox circle
+            GestureDetector(
+              onTap: () => _toggleCompletion(context),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: goal.completed ? Colors.green : Colors.transparent,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: goal.completed ? Colors.green : Colors.grey.shade400,
+                    width: 1.8,
+                  ),
+                ),
+                child: Icon(
+                  goal.completed ? Icons.check : Icons.radio_button_unchecked,
+                  color: goal.completed ? Colors.white : Colors.grey,
+                  size: 18,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            // Title & metadata
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    goal.title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      decoration: goal.completed
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: goal.completed ? Colors.grey : Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      if (goal.targetDate != null) ...[
+                        Icon(
+                          Icons.calendar_today,
+                          size: 14,
+                          color: goal.isOverdue
+                              ? Colors.red
+                              : Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _formatTargetDateShort(goal.targetDate!),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: goal.isOverdue
+                                ? Colors.red
+                                : Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                      ],
+                      Icon(
+                        goal.priorityIcon,
+                        size: 14,
+                        color: goal.priorityColor,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${(goal.progress * 100).round()}% • ${goal.completedTaskCount}/${goal.taskCount}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // trailing menu like Google Tasks' three-dot actions
+            PopupMenuButton<String>(
+              onSelected: (v) async {
+                if (v == 'edit') {
+                  _editGoal(context);
+                } else if (v == 'delete') {
+                  _deleteGoal(context);
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Edit')),
+                PopupMenuItem(value: 'delete', child: Text('Delete')),
               ],
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    return Row(
-      children: [
-        _CompletionCheckbox(
-          completed: goal.completed,
-          onToggle: () => _toggleCompletion(context),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                goal.title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      decoration: goal.completed ? TextDecoration.lineThrough : null,
-                      color: goal.completed ? Colors.grey : null,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              if (goal.description.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  goal.description,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey[600],
-                      ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ],
-          ),
-        ),
-        Icon(goal.priorityIcon, color: goal.priorityColor, size: 24),
-      ],
-    );
-  }
-
-  Widget _buildMetadata() {
-    return Wrap(
-      spacing: 12,
-      runSpacing: 8,
-      children: [
-        if (goal.targetDate != null)
-          _InfoChip(
-            icon: Icons.calendar_today,
-            label: _formatTargetDate(goal.targetDate!),
-            color: goal.isOverdue ? Colors.red : Colors.grey.shade700,
-          ),
-        if (goal.estimatedMinutes > 0)
-          _InfoChip(
-            icon: Icons.timer_outlined,
-            label: '${goal.estimatedMinutes} min',
-            color: Colors.grey.shade700,
-          ),
-        if (goal.totalStudyMinutes > 0)
-          _InfoChip(
-            icon: Icons.trending_up,
-            label: '${goal.totalStudyMinutes} min done',
-            color: Colors.green.shade700,
-          ),
-      ],
-    );
-  }
-
-  Widget _buildTags() {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: goal.tags.take(3).map((tag) {
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.blue.shade50,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.blue.shade200),
-          ),
-          child: Text(
-            tag,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.blue.shade700,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  String _formatTargetDate(DateTime date) {
-    final hasTime = date.hour != 0 || date.minute != 0;
-    if (hasTime) {
-      return '${DateFormat('MMM d').format(date)} ${DateFormat('h:mm a').format(date)}';
-    }
+  String _formatTargetDateShort(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(date.year, date.month, date.day);
+    if (d == today) return 'Today';
+    if (d == today.add(const Duration(days: 1))) return 'Tomorrow';
     return DateFormat('MMM d').format(date);
   }
 
@@ -591,32 +765,334 @@ class _GoalCard extends StatelessWidget {
           .collection('goals')
           .doc(goal.id)
           .update({
-        'completed': !goal.completed,
-        'completedAt': !goal.completed ? FieldValue.serverTimestamp() : null,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+            'completed': !goal.completed,
+            'completedAt': !goal.completed
+                ? FieldValue.serverTimestamp()
+                : null,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+      // If toggled to completed, optionally mark tasks completed? Keep manual control.
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating goal: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error updating goal: $e')));
+      }
+    }
+  }
+
+  void _editGoal(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => _GoalFormDialog(uid: uid, existingGoal: goal),
+    );
+  }
+
+  Future<void> _deleteGoal(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Goal?'),
+        content: const Text(
+          'This action cannot be undone. Delete goal and its tasks?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Delete all tasks first (batch)
+      final tasksColl = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('goals')
+          .doc(goal.id)
+          .collection('tasks');
+
+      final tasksSnapshot = await tasksColl.get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (var t in tasksSnapshot.docs) {
+        batch.delete(t.reference);
+      }
+      // delete the goal
+      final goalRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('goals')
+          .doc(goal.id);
+      batch.delete(goalRef);
+      await batch.commit();
+
+      if (context.mounted) {
+        Navigator.pop(context); // pop loading
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Goal deleted')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // pop loading
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error deleting goal: $e')));
       }
     }
   }
 }
 
 // ============================================================================
-// REUSABLE COMPONENTS
+// GOAL DETAILS SHEET (Google Tasks-style detail sheet)
+// ============================================================================
+
+class _GoalDetailsSheet extends StatelessWidget {
+  final StudyGoal goal;
+  final String uid;
+
+  const _GoalDetailsSheet({required this.goal, required this.uid});
+
+  @override
+  Widget build(BuildContext context) {
+    // Google Tasks style: clean header, list of tasks below, quick add at bottom
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.85,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 8),
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    goal.title,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _editGoal(context);
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _deleteGoal(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+          if (goal.description.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Text(
+                goal.description,
+                style: const TextStyle(color: Colors.black87),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                if (goal.targetDate != null)
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today_outlined, size: 16),
+                      const SizedBox(width: 6),
+                      Text(_formatFullDateShort(goal.targetDate!)),
+                      const SizedBox(width: 12),
+                    ],
+                  ),
+                Icon(goal.priorityIcon, size: 16, color: goal.priorityColor),
+                const SizedBox(width: 6),
+                Text(
+                  '${(goal.progress * 100).round()}% • ${goal.completedTaskCount}/${goal.taskCount} tasks',
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 0),
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: _TaskListView(uid: uid, goalId: goal.id),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // quick add field like Google Tasks
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) =>
+                            _TaskFormDialog(uid: uid, goalId: goal.id),
+                      );
+                    },
+                    child: const Text('Add task'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.tonal(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Go to Pomodoro tab to start studying!'),
+                      ),
+                    );
+                  },
+                  child: const Icon(Icons.play_arrow),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatFullDateShort(DateTime date) {
+    final hasTime = date.hour != 0 || date.minute != 0;
+    if (hasTime) {
+      return '${DateFormat('MMM d').format(date)} ${DateFormat('h:mm a').format(date)}';
+    }
+    return DateFormat('MMM d, y').format(date);
+  }
+
+  void _editGoal(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => _GoalFormDialog(uid: uid, existingGoal: goal),
+    );
+  }
+
+  Future<void> _deleteGoal(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Goal?'),
+        content: const Text(
+          'This action cannot be undone. Delete goal and its tasks?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (c) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Delete all tasks first (batch)
+      final tasksColl = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('goals')
+          .doc(goal.id)
+          .collection('tasks');
+
+      final tasksSnapshot = await tasksColl.get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (var t in tasksSnapshot.docs) {
+        batch.delete(t.reference);
+      }
+      // delete the goal
+      final goalRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('goals')
+          .doc(goal.id);
+      batch.delete(goalRef);
+      await batch.commit();
+
+      if (context.mounted) {
+        Navigator.pop(context); // pop loading
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Goal deleted')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        Navigator.pop(context); // pop loading
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error deleting goal: $e')));
+      }
+    }
+  }
+}
+
+// ============================================================================
+// REUSABLE COMPONENTS (unchanged)
 // ============================================================================
 
 class _CompletionCheckbox extends StatelessWidget {
   final bool completed;
   final VoidCallback onToggle;
 
-  const _CompletionCheckbox({
-    required this.completed,
-    required this.onToggle,
-  });
+  const _CompletionCheckbox({required this.completed, required this.onToggle});
 
   @override
   Widget build(BuildContext context) {
@@ -681,316 +1157,7 @@ class _InfoChip extends StatelessWidget {
 }
 
 // ============================================================================
-// GOAL DETAILS SHEET
-// ============================================================================
-
-class _GoalDetailsSheet extends StatelessWidget {
-  final StudyGoal goal;
-  final String uid;
-
-  const _GoalDetailsSheet({required this.goal, required this.uid});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        children: [
-          _buildDragHandle(),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildHeader(context),
-                  const Divider(height: 24),
-                  if (goal.description.isNotEmpty) ...[
-                    _buildSection('Description', goal.description),
-                    const SizedBox(height: 20),
-                  ],
-                  _buildDetailsSection(),
-                  if (goal.tags.isNotEmpty) ...[
-                    const SizedBox(height: 20),
-                    _buildTagsSection(context),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          _buildActionButton(context),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDragHandle() {
-    return Container(
-      margin: const EdgeInsets.only(top: 8),
-      width: 40,
-      height: 4,
-      decoration: BoxDecoration(
-        color: Colors.grey[300],
-        borderRadius: BorderRadius.circular(2),
-      ),
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            goal.title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-          ),
-        ),
-        IconButton(
-          icon: const Icon(Icons.edit),
-          onPressed: () {
-            Navigator.pop(context);
-            _editGoal(context);
-          },
-        ),
-        IconButton(
-          icon: const Icon(Icons.delete, color: Colors.red),
-          onPressed: () {
-            Navigator.pop(context);
-            _deleteGoal(context);
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSection(String title, String content) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(height: 8),
-        Text(content, style: const TextStyle(fontSize: 15)),
-      ],
-    );
-  }
-
-  Widget _buildDetailsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Details',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(height: 12),
-        _DetailRow(
-          icon: Icons.flag,
-          label: 'Priority',
-          value: goal.priority,
-        ),
-        if (goal.targetDate != null)
-          _DetailRow(
-            icon: Icons.calendar_today,
-            label: 'Due Date',
-            value: _formatFullDate(goal.targetDate!),
-          ),
-        if (goal.estimatedMinutes > 0)
-          _DetailRow(
-            icon: Icons.timer,
-            label: 'Estimated Time',
-            value: '${goal.estimatedMinutes} minutes',
-          ),
-        _DetailRow(
-          icon: Icons.history,
-          label: 'Time Studied',
-          value: '${goal.totalStudyMinutes} minutes',
-        ),
-        _DetailRow(
-          icon: Icons.replay,
-          label: 'Study Sessions',
-          value: '${goal.studySessions}',
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTagsSection(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Tags',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: goal.tags.map((tag) {
-            return Chip(
-              label: Text(tag),
-              backgroundColor: Colors.blue.shade50,
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionButton(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Go to Pomodoro tab to start studying!'),
-                ),
-              );
-            },
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Start Study Session'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  String _formatFullDate(DateTime date) {
-    final hasTime = date.hour != 0 || date.minute != 0;
-    if (hasTime) {
-      return '${DateFormat('MMMM d, y').format(date)} at ${DateFormat('h:mm a').format(date)}';
-    }
-    return DateFormat('MMMM d, y').format(date);
-  }
-
-  void _editGoal(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => _GoalFormDialog(uid: uid, existingGoal: goal),
-    );
-  }
-
-  Future<void> _deleteGoal(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Goal?'),
-        content: const Text('This action cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !context.mounted) return;
-
-    try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('goals')
-          .doc(goal.id)
-          .delete();
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Goal deleted')),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error deleting goal: $e')),
-        );
-      }
-    }
-  }
-}
-
-class _DetailRow extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _DetailRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 20, color: Colors.blue.shade700),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ============================================================================
-// GOAL FORM DIALOG
+// GOAL FORM DIALOG (keeps your original fields + tags/time)
 // ============================================================================
 
 class _GoalFormDialog extends StatefulWidget {
@@ -1028,10 +1195,12 @@ class _GoalFormDialogState extends State<_GoalFormDialog> {
     _targetDate = goal?.targetDate;
     _tags = List.from(goal?.tags ?? []);
 
-    // Extract time from existing targetDate if it has a time component
     if (_targetDate != null &&
         (_targetDate!.hour != 0 || _targetDate!.minute != 0)) {
-      _targetTime = TimeOfDay(hour: _targetDate!.hour, minute: _targetDate!.minute);
+      _targetTime = TimeOfDay(
+        hour: _targetDate!.hour,
+        minute: _targetDate!.minute,
+      );
     }
   }
 
@@ -1169,10 +1338,7 @@ class _GoalFormDialogState extends State<_GoalFormDialog> {
                 _targetTime = null;
               }),
             ),
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: _pickDate,
-          ),
+          IconButton(icon: const Icon(Icons.edit), onPressed: _pickDate),
         ],
       ),
     );
@@ -1193,10 +1359,7 @@ class _GoalFormDialogState extends State<_GoalFormDialog> {
               icon: const Icon(Icons.clear),
               onPressed: () => setState(() => _targetTime = null),
             ),
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: _pickTime,
-          ),
+          IconButton(icon: const Icon(Icons.edit), onPressed: _pickTime),
         ],
       ),
     );
@@ -1276,7 +1439,6 @@ class _GoalFormDialogState extends State<_GoalFormDialog> {
     if (!_formKey.currentState!.validate()) return;
     _formKey.currentState!.save();
 
-    // Combine date and time if both are provided
     DateTime? fullTargetDateTime;
     if (_targetDate != null) {
       if (_targetTime != null) {
@@ -1297,30 +1459,30 @@ class _GoalFormDialogState extends State<_GoalFormDialog> {
       'description': _description,
       'priority': _priority,
       'estimatedMinutes': int.tryParse(_estimatedMinutes) ?? 0,
-      'targetDate':
-          fullTargetDateTime != null ? Timestamp.fromDate(fullTargetDateTime) : null,
+      'targetDate': fullTargetDateTime != null
+          ? Timestamp.fromDate(fullTargetDateTime)
+          : null,
       'tags': _tags,
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
     try {
+      final goalsRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.uid)
+          .collection('goals');
+
       if (_isEditing) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.uid)
-            .collection('goals')
-            .doc(widget.existingGoal!.id)
-            .update(goalData);
+        await goalsRef.doc(widget.existingGoal!.id).update(goalData);
       } else {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.uid)
-            .collection('goals')
-            .add({
+        await goalsRef.add({
           ...goalData,
           'completed': false,
           'studySessions': 0,
           'totalStudyMinutes': 0,
+          'taskCount': 0,
+          'completedTaskCount': 0,
+          'progress': 0.0,
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
@@ -1330,23 +1492,462 @@ class _GoalFormDialogState extends State<_GoalFormDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              _isEditing ? 'Goal updated successfully!' : 'Goal created successfully!',
+              _isEditing
+                  ? 'Goal updated successfully!'
+                  : 'Goal created successfully!',
             ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
 }
 
 // ============================================================================
-// ADD GOAL FAB
+// TASK LIST VIEW
+// ============================================================================
+
+class _TaskListView extends StatelessWidget {
+  final String uid;
+  final String goalId;
+
+  const _TaskListView({required this.uid, required this.goalId});
+
+  Future<void> _recalculateProgress() async {
+    final tasksSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('goals')
+        .doc(goalId)
+        .collection('tasks')
+        .get();
+
+    final total = tasksSnap.docs.length;
+    final completed = tasksSnap.docs.where((d) {
+      final m = d.data() as Map<String, dynamic>;
+      return (m['completed'] ?? false) == true;
+    }).length;
+    final progress = total == 0 ? 0.0 : (completed / total);
+
+    final goalRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('goals')
+        .doc(goalId);
+
+    await goalRef.update({
+      'taskCount': total,
+      'completedTaskCount': completed,
+      'progress': progress,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('goals')
+          .doc(goalId)
+          .collection('tasks')
+          .orderBy('order')
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Text('Error loading tasks: ${snapshot.error}');
+        }
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final tasksDocs = snapshot.data?.docs ?? [];
+        if (tasksDocs.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text('No tasks yet — add one below.'),
+          );
+        }
+        // Google Tasks style: compact task rows with check and simple subtitle
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          itemCount: tasksDocs.length,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (context, i) {
+            final doc = tasksDocs[i];
+            final task = StudyTask.fromFirestore(doc);
+            return Slidable(
+              key: ValueKey(doc.id),
+              endActionPane: ActionPane(
+                motion: const DrawerMotion(),
+                children: [
+                  SlidableAction(
+                    onPressed: (_) => showDialog(
+                      context: context,
+                      builder: (_) => _TaskFormDialog(
+                        uid: uid,
+                        goalId: goalId,
+                        taskId: doc.id,
+                        existingTask: task,
+                      ),
+                    ),
+                    icon: Icons.edit,
+                    backgroundColor: Colors.blue,
+                  ),
+                  SlidableAction(
+                    onPressed: (_) async {
+                      await FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(uid)
+                          .collection('goals')
+                          .doc(goalId)
+                          .collection('tasks')
+                          .doc(doc.id)
+                          .delete();
+                      await _recalculateProgress();
+                    },
+                    icon: Icons.delete,
+                    backgroundColor: Colors.red,
+                  ),
+                ],
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 6,
+                ),
+                leading: GestureDetector(
+                  onTap: () async {
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(uid)
+                        .collection('goals')
+                        .doc(goalId)
+                        .collection('tasks')
+                        .doc(doc.id)
+                        .update({
+                          'completed': !task.completed,
+                          'completedAt': !task.completed
+                              ? FieldValue.serverTimestamp()
+                              : null,
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        });
+                    await _recalculateProgress();
+                  },
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: task.completed ? Colors.green : Colors.transparent,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: task.completed
+                            ? Colors.green
+                            : Colors.grey.shade400,
+                        width: 1.6,
+                      ),
+                    ),
+                    child: Icon(
+                      task.completed
+                          ? Icons.check
+                          : Icons.radio_button_unchecked,
+                      color: task.completed ? Colors.white : Colors.grey,
+                      size: 18,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  task.title,
+                  style: task.completed
+                      ? const TextStyle(
+                          decoration: TextDecoration.lineThrough,
+                          color: Colors.grey,
+                        )
+                      : null,
+                ),
+                subtitle: _buildTaskSubtitle(task),
+                onTap: () {
+                  // open edit dialog
+                  showDialog(
+                    context: context,
+                    builder: (_) => _TaskFormDialog(
+                      uid: uid,
+                      goalId: goalId,
+                      taskId: doc.id,
+                      existingTask: task,
+                    ),
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildTaskSubtitle(StudyTask task) {
+    final parts = <String>[];
+    if (task.dueDate != null)
+      parts.add(DateFormat('MMM d').format(task.dueDate!));
+    if (task.description.isNotEmpty) parts.add(task.description);
+    if (task.priority.isNotEmpty) parts.add('Priority: ${task.priority}');
+    if (task.tags.isNotEmpty) parts.add(task.tags.join(', '));
+    return Text(
+      parts.join(' • '),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+}
+
+// ============================================================================
+// TASK FORM DIALOG (Add/Edit tasks)
+// ============================================================================
+
+class _TaskFormDialog extends StatefulWidget {
+  final String uid;
+  final String goalId;
+  final String? taskId;
+  final StudyTask? existingTask;
+
+  const _TaskFormDialog({
+    required this.uid,
+    required this.goalId,
+    this.taskId,
+    this.existingTask,
+  });
+
+  @override
+  State<_TaskFormDialog> createState() => _TaskFormDialogState();
+}
+
+class _TaskFormDialogState extends State<_TaskFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late String _title;
+  late String _description;
+  DateTime? _dueDate;
+  int _order = 0;
+  List<String> _selectedTags = [];
+  String _priority = 'Normal';
+
+  List<String> _tags = [];
+  final TextEditingController _tagController = TextEditingController();
+
+  bool get _isEditing => widget.existingTask != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _title = widget.existingTask?.title ?? '';
+    _description = widget.existingTask?.description ?? '';
+    _dueDate = widget.existingTask?.dueDate;
+    _order = widget.existingTask?.order ?? 0;
+    _priority = widget.existingTask?.priority ?? 'Medium';
+    _tags = List.from(widget.existingTask?.tags ?? []);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(_isEditing ? 'Edit Task' : 'Add Task'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                initialValue: _title,
+                decoration: const InputDecoration(labelText: 'Task Title'),
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? 'Enter title' : null,
+                onSaved: (v) => _title = v!.trim(),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                initialValue: _description,
+                decoration: const InputDecoration(labelText: 'Description'),
+                maxLines: 2,
+                onSaved: (v) => _description = v?.trim() ?? '',
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _priority,
+                decoration: const InputDecoration(labelText: 'Priority'),
+                items: ['Low', 'Medium', 'High']
+                    .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                    .toList(),
+                onChanged: (v) => setState(() => _priority = v!),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _tagController,
+                decoration: InputDecoration(
+                  labelText: 'Add Tag',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.add),
+                    onPressed: () {
+                      if (_tagController.text.trim().isEmpty) return;
+                      setState(() {
+                        _tags.add(_tagController.text.trim());
+                        _tagController.clear();
+                      });
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Wrap(
+                spacing: 4,
+                children: _tags
+                    .map(
+                      (tag) => Chip(
+                        label: Text(tag),
+                        onDeleted: () => setState(() => _tags.remove(tag)),
+                      ),
+                    )
+                    .toList(),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _dueDate == null
+                          ? 'No due date'
+                          : DateFormat('MMM d, y').format(_dueDate!),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _pickDate,
+                    child: const Text('Pick Date'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saveTask,
+          child: Text(_isEditing ? 'Save' : 'Add'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 5),
+      initialDate: _dueDate ?? now,
+    );
+    if (picked != null) setState(() => _dueDate = picked);
+  }
+
+  Future<void> _saveTask() async {
+    if (!_formKey.currentState!.validate()) return;
+    _formKey.currentState!.save();
+
+    final tasksRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(widget.uid)
+        .collection('goals')
+        .doc(widget.goalId)
+        .collection('tasks');
+
+    final data = {
+      'title': _title,
+      'description': _description,
+      'dueDate': _dueDate != null ? Timestamp.fromDate(_dueDate!) : null,
+      'completed': widget.existingTask?.completed ?? false,
+      'order': _order,
+      'tags': _selectedTags,
+      'priority': _priority,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+
+    DocumentReference taskRef;
+
+    if (_isEditing) {
+      taskRef = tasksRef.doc(widget.taskId!);
+      await taskRef.update(data);
+    } else {
+      taskRef = await tasksRef.add(data);
+    }
+
+    // ✅ Add task to calendar (just like goals)
+    if (_dueDate != null) {
+      final calendarRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.uid)
+          .collection('calendar');
+
+      await calendarRef.doc(taskRef.id).set({
+        'title': _title,
+        'description': _description,
+        'date': Timestamp.fromDate(_dueDate!),
+        'type': 'task', // so you can differentiate goals and tasks
+        'goalId': widget.goalId,
+        'taskId': taskRef.id,
+        'priority': _priority,
+        'tags': _selectedTags,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    // Recalculate parent progress
+    await _recalculateParentProgress(widget.uid, widget.goalId);
+
+    if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _recalculateParentProgress(String uid, String goalId) async {
+    final tasksSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('goals')
+        .doc(goalId)
+        .collection('tasks')
+        .get();
+    final total = tasksSnap.docs.length;
+    final completed = tasksSnap.docs
+        .where((d) => (d.data()['completed'] ?? false) == true)
+        .length;
+    final progress = total == 0 ? 0.0 : (completed / total);
+
+    final goalRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('goals')
+        .doc(goalId);
+
+    await goalRef.update({
+      'taskCount': total,
+      'completedTaskCount': completed,
+      'progress': progress,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+}
+
+// ============================================================================
+// ADD GOAL FAB (unchanged visual but compact)
 // ============================================================================
 
 class _AddGoalFAB extends StatelessWidget {
@@ -1356,10 +1957,10 @@ class _AddGoalFAB extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton.extended(
+    return FloatingActionButton(
       onPressed: () => _showAddGoalDialog(context),
-      icon: const Icon(Icons.add),
-      label: const Text('New Goal'),
+      tooltip: 'New goal',
+      child: const Icon(Icons.add),
     );
   }
 
@@ -1372,17 +1973,14 @@ class _AddGoalFAB extends StatelessWidget {
 }
 
 // ============================================================================
-// EMPTY STATE VIEWS
+// EMPTY STATE & ERROR VIEWS (unchanged)
 // ============================================================================
 
 class _EmptyStateView extends StatelessWidget {
   final bool isSignedOut;
   final bool isCompleted;
 
-  const _EmptyStateView({
-    this.isSignedOut = false,
-    this.isCompleted = false,
-  });
+  const _EmptyStateView({this.isSignedOut = false, this.isCompleted = false});
 
   @override
   Widget build(BuildContext context) {

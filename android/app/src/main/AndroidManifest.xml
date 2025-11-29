@@ -7,7 +7,7 @@
          <!-- ✅ Google OAuth Client ID -->
         <meta-data
             android:name="com.google.android.gms.client_id"
-            android:value="371621892269-ui9al7l8nk0m4ccgpt6js3ub7qtibncj.apps.googleusercontent.com" />
+            android:value="371621892269-08qgap6io688o5qqtg8hhpdc4fnv09hh.apps.googleusercontent.com" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
