@@ -1,5 +1,5 @@
 // lib/tabs/groups_list_page.dart
-// Clean, optimized Group List Page — FINAL VERSION
+// FIXED VERSION - Resolves join visibility issues
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -43,89 +43,116 @@ class _GroupsListPageState extends State<GroupsListPage> {
 
   // ✨ Create Group
   Future<void> _createGroup(String name, String description) async {
-    final code = _generateGroupCode();
+    try {
+      final code = _generateGroupCode();
 
-    final groupRef = await _fire.collection('groups').add({
-      'name': name,
-      'description': description,
-      'code': code,
-      'createdBy': widget.uid,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'memberIds': [widget.uid], // ⭐ REQUIRED
-    });
+      final groupRef = await _fire.collection('groups').add({
+        'name': name,
+        'description': description,
+        'code': code,
+        'createdBy': widget.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'memberIds': [widget.uid], // ⭐ REQUIRED
+      });
 
-    // Add creator to members collection
-    await groupRef.collection('members').doc(widget.uid).set({
-      'displayName': widget.displayName ?? 'User',
-      'email': widget.email ?? '',
-      'role': 'admin',
-      'joinedAt': FieldValue.serverTimestamp(),
-    });
+      // Add creator to members collection
+      await groupRef.collection('members').doc(widget.uid).set({
+        'displayName': widget.displayName ?? 'User',
+        'email': widget.email ?? '',
+        'role': 'admin',
+        'joinedAt': FieldValue.serverTimestamp(),
+      });
 
-    // Add to user's group list
-    await _fire.collection('users').doc(widget.uid).set({
-      'groups': FieldValue.arrayUnion([groupRef.id])
-    }, SetOptions(merge: true));
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Group created! Code: $code')),
-      );
-    }
-  }
-
- Future<void> _joinGroup(String code) async {
-  try {
-    final snap = await _fire
-        .collection('groups')
-        .where('code', isEqualTo: code)
-        .limit(1)
-        .get();
-
-    if (snap.docs.isEmpty) {
-      return _showSnack('Group not found');
-    }
-
-    final groupDoc = snap.docs.first;
-    final groupRef = groupDoc.reference;
-
-    // Already a member?
-    final memberDoc =
-        await groupRef.collection('members').doc(widget.uid).get();
-    if (memberDoc.exists) {
-      // Fix missing memberIds array
-      await groupRef.set({
-        'memberIds': FieldValue.arrayUnion([widget.uid])
+      // Add to user's group list
+      await _fire.collection('users').doc(widget.uid).set({
+        'groups': FieldValue.arrayUnion([groupRef.id])
       }, SetOptions(merge: true));
 
-      return _showSnack('Already a member');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Group created! Code: $code')),
+        );
+      }
+    } catch (e) {
+      _showSnack('Error creating group: $e');
+    }
+  }
+
+  // ✨ Join Group - FIXED VERSION
+  Future<void> _joinGroup(String code) async {
+    if (code.isEmpty) {
+      return _showSnack('Please enter a group code');
     }
 
-    // Add member doc
-    await groupRef.collection('members').doc(widget.uid).set({
-      'displayName': widget.displayName ?? 'User',
-      'email': widget.email ?? '',
-      'role': 'member',
-      'joinedAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      // Show loading
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Joining group...'), duration: Duration(seconds: 1)),
+        );
+      }
 
-    // ALWAYS ensure memberIds exists
-    await groupRef.set({
-      'memberIds': FieldValue.arrayUnion([widget.uid])
-    }, SetOptions(merge: true));
+      // Find group by code
+      final snap = await _fire
+          .collection('groups')
+          .where('code', isEqualTo: code)
+          .limit(1)
+          .get();
 
-    // Add to user's group list
-    await _fire.collection('users').doc(widget.uid).set({
-      'groups': FieldValue.arrayUnion([groupRef.id])
-    }, SetOptions(merge: true));
+      if (snap.docs.isEmpty) {
+        return _showSnack('Group not found. Check the code and try again.');
+      }
 
-    _showSnack('Joined group successfully!');
-  } catch (e) {
-    _showSnack('Error: $e');
+      final groupDoc = snap.docs.first;
+      final groupRef = groupDoc.reference;
+      final groupId = groupDoc.id;
+      final groupName = groupDoc.data()['name'] ?? 'Group';
+
+      // Check if already a member
+      final memberDoc = await groupRef.collection('members').doc(widget.uid).get();
+      
+      if (memberDoc.exists) {
+        // User is already a member, but ensure memberIds array is correct
+        await groupRef.update({
+          'memberIds': FieldValue.arrayUnion([widget.uid])
+        });
+
+        // Ensure user document has this group
+        await _fire.collection('users').doc(widget.uid).set({
+          'groups': FieldValue.arrayUnion([groupId])
+        }, SetOptions(merge: true));
+
+        return _showSnack('You are already a member of "$groupName"');
+      }
+
+      // Perform all writes in sequence to ensure consistency
+      
+      // 1. Add member document
+      await groupRef.collection('members').doc(widget.uid).set({
+        'displayName': widget.displayName ?? 'User',
+        'email': widget.email ?? '',
+        'role': 'member',
+        'joinedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 2. Update group's memberIds array
+      await groupRef.update({
+        'memberIds': FieldValue.arrayUnion([widget.uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // 3. Update user's groups array
+      await _fire.collection('users').doc(widget.uid).set({
+        'groups': FieldValue.arrayUnion([groupId])
+      }, SetOptions(merge: true));
+
+      _showSnack('Successfully joined "$groupName"!');
+    } catch (e) {
+      _showSnack('Error joining group: $e');
+      debugPrint('Join group error: $e');
+    }
   }
-}
-
 
   // ✨ Leave Group
   Future<void> _leaveGroup(String groupId, String groupName) async {
@@ -135,7 +162,10 @@ class _GroupsListPageState extends State<GroupsListPage> {
         title: Text('Leave "$groupName"?'),
         content: const Text('Are you sure you want to leave this group?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
@@ -150,24 +180,30 @@ class _GroupsListPageState extends State<GroupsListPage> {
     final groupRef = _fire.collection('groups').doc(groupId);
 
     try {
+      // Remove member document
       await groupRef.collection('members').doc(widget.uid).delete();
 
+      // Remove from memberIds array
       await groupRef.update({
-        'memberIds': FieldValue.arrayRemove([widget.uid])
+        'memberIds': FieldValue.arrayRemove([widget.uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
+      // Remove from user's groups list
       await _fire.collection('users').doc(widget.uid).update({
         'groups': FieldValue.arrayRemove([groupId])
       });
 
-      _showSnack('Left group');
+      _showSnack('Left "$groupName"');
     } catch (e) {
-      _showSnack('Error: $e');
+      _showSnack('Error leaving group: $e');
     }
   }
 
   void _showSnack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
   }
 
   // ✨ Open Group Page
@@ -200,6 +236,7 @@ class _GroupsListPageState extends State<GroupsListPage> {
             TextField(
               controller: nameCtl,
               decoration: const InputDecoration(labelText: 'Group Name *'),
+              textCapitalization: TextCapitalization.words,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -210,12 +247,18 @@ class _GroupsListPageState extends State<GroupsListPage> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             child: const Text('Create'),
             onPressed: () async {
               final name = nameCtl.text.trim();
-              if (name.isEmpty) return _showSnack('Name required');
+              if (name.isEmpty) {
+                _showSnack('Group name is required');
+                return;
+              }
               Navigator.pop(context);
               await _createGroup(name, descCtl.text.trim());
             },
@@ -233,22 +276,38 @@ class _GroupsListPageState extends State<GroupsListPage> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Join Group'),
-        content: TextField(
-          controller: codeCtl,
-          decoration: const InputDecoration(
-            labelText: 'Group Code',
-            prefixIcon: Icon(Icons.key),
-          ),
-          keyboardType: TextInputType.number,
-          maxLength: 6,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: codeCtl,
+              decoration: const InputDecoration(
+                labelText: 'Group Code',
+                prefixIcon: Icon(Icons.key),
+                hintText: '6-digit code',
+              ),
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Enter the 6-digit code shared by the group admin',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             child: const Text('Join'),
             onPressed: () {
+              final code = codeCtl.text.trim();
               Navigator.pop(context);
-              _joinGroup(codeCtl.text.trim());
+              _joinGroup(code);
             },
           )
         ],
@@ -266,6 +325,16 @@ class _GroupsListPageState extends State<GroupsListPage> {
       appBar: AppBar(
         title: const Text('Study Groups'),
         elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh',
+            onPressed: () {
+              setState(() {}); // Trigger rebuild
+              _showSnack('Refreshed');
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -278,12 +347,14 @@ class _GroupsListPageState extends State<GroupsListPage> {
                 hintText: 'Search groups...',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.grey.shade50,
               ),
               onChanged: (v) => setState(() => _searchQuery = v.toLowerCase()),
             ),
           ),
 
-          // ⭐ Load groups instantly with memberIds
+          // ⭐ Load groups with memberIds - NO INDEX REQUIRED
           Expanded(
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: _fire
@@ -292,36 +363,88 @@ class _GroupsListPageState extends State<GroupsListPage> {
                   .snapshots(),
               builder: (_, snap) {
                 if (snap.hasError) {
-                  return Center(child: Text('Error: ${snap.error}'));
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.error_outline, size: 48, color: Colors.red.shade300),
+                        const SizedBox(height: 16),
+                        Text('Error: ${snap.error}'),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: () => setState(() {}),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  );
                 }
+
                 if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
                 var groups = snap.data!.docs;
 
-                // Apply search
+                // Sort by updatedAt manually (no index needed)
+                groups.sort((a, b) {
+                  final aTime = (a.data()['updatedAt'] as Timestamp?)?.toDate();
+                  final bTime = (b.data()['updatedAt'] as Timestamp?)?.toDate();
+                  if (aTime == null && bTime == null) return 0;
+                  if (aTime == null) return 1;
+                  if (bTime == null) return -1;
+                  return bTime.compareTo(aTime); // Most recent first
+                });
+
+                // Apply search filter
                 if (_searchQuery.isNotEmpty) {
                   groups = groups.where((g) {
-                    final n = (g['name'] ?? '').toString().toLowerCase();
-                    final d = (g['description'] ?? '').toString().toLowerCase();
-                    return n.contains(_searchQuery) || d.contains(_searchQuery);
+                    final data = g.data();
+                    final name = (data['name'] ?? '').toString().toLowerCase();
+                    final desc = (data['description'] ?? '').toString().toLowerCase();
+                    final code = (data['code'] ?? '').toString().toLowerCase();
+                    return name.contains(_searchQuery) || 
+                           desc.contains(_searchQuery) || 
+                           code.contains(_searchQuery);
                   }).toList();
                 }
 
                 if (groups.isEmpty) {
-                  return const Center(child: Text('No groups found'));
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.group_outlined, size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text(
+                          _searchQuery.isEmpty 
+                              ? 'No groups yet' 
+                              : 'No groups match your search',
+                          style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                        ),
+                        const SizedBox(height: 8),
+                        if (_searchQuery.isEmpty)
+                          Text(
+                            'Create a new group or join one!',
+                            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                          ),
+                      ],
+                    ),
+                  );
                 }
 
                 return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 80),
                   itemCount: groups.length,
                   itemBuilder: (_, i) {
                     final g = groups[i];
+                    final data = g.data();
                     return _GroupCard(
                       groupDoc: g,
                       uid: widget.uid,
-                      onTap: () => _openGroup(g.id, g['name']),
-                      onLeave: () => _leaveGroup(g.id, g['name']),
+                      onTap: () => _openGroup(g.id, data['name'] ?? 'Group'),
+                      onLeave: () => _leaveGroup(g.id, data['name'] ?? 'Group'),
                     );
                   },
                 );
@@ -335,17 +458,18 @@ class _GroupsListPageState extends State<GroupsListPage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           FloatingActionButton.extended(
-            heroTag: "join",
+            heroTag: "join_group_fab",
             onPressed: _showJoinGroupDialog,
             icon: const Icon(Icons.login),
-            label: const Text('Join'),
+            label: const Text('Join Group'),
+            backgroundColor: Colors.green,
           ),
           const SizedBox(height: 12),
           FloatingActionButton.extended(
-            heroTag: "create",
+            heroTag: "create_group_fab",
             onPressed: _showCreateGroupDialog,
             icon: const Icon(Icons.add),
-            label: const Text('Create'),
+            label: const Text('Create Group'),
           ),
         ],
       ),
@@ -377,70 +501,151 @@ class _GroupCard extends StatelessWidget {
     final desc = data['description'] ?? '';
     final code = data['code'] ?? '';
     final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+    final isAdmin = data['createdBy'] == uid;
 
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(color: Colors.black12, blurRadius: 8, offset: const Offset(0, 3)),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: Colors.blue.shade100,
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.blue.shade100,
+                    child: Text(
+                      name[0].toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            if (isAdmin)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  'Admin',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.amber.shade900,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.key, size: 14, color: Colors.grey.shade600),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Code: $code',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey.shade600,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (v) {
+                      if (v == 'copy') {
+                        Clipboard.setData(ClipboardData(text: code));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Code copied to clipboard')),
+                        );
+                      } else if (v == 'leave') {
+                        onLeave();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'copy',
+                        child: Row(
+                          children: [
+                            Icon(Icons.copy, size: 20),
+                            SizedBox(width: 12),
+                            Text('Copy Code'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'leave',
+                        child: Row(
+                          children: [
+                            Icon(Icons.exit_to_app, size: 20, color: Colors.red),
+                            SizedBox(width: 12),
+                            Text('Leave Group', style: TextStyle(color: Colors.red)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              if (desc.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
                   child: Text(
-                    name[0].toUpperCase(),
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.blue.shade700),
+                    desc,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey.shade700),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    name,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              if (createdAt != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 12, color: Colors.grey.shade500),
+                      const SizedBox(width: 6),
+                      Text(
+                        "Created ${DateFormat('MMM d, y').format(createdAt)}",
+                        style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                      ),
+                    ],
                   ),
                 ),
-                PopupMenuButton<String>(
-                  onSelected: (v) {
-                    if (v == 'copy') {
-                      Clipboard.setData(ClipboardData(text: code));
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code copied')));
-                    } else if (v == 'leave') {
-                      onLeave();
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'copy', child: Text('Copy Code')),
-                    PopupMenuItem(value: 'leave', child: Text('Leave Group')),
-                  ],
-                ),
-              ],
-            ),
-            if (desc.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(desc, maxLines: 2, overflow: TextOverflow.ellipsis),
-              ),
-            if (createdAt != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  "Created ${DateFormat('MMM d, y').format(createdAt)}",
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

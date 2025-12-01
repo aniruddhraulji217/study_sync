@@ -2,7 +2,8 @@
     <application
         android:label="study_sync"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true">
 
          <!-- ✅ Google OAuth Client ID -->
         <meta-data
